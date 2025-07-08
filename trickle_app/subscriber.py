@@ -23,6 +23,7 @@ class TrickleSubscriber:
         self.session: Optional[aiohttp.ClientSession] = None
         self.errored = False
         self.max_retries = max_retries
+        self._subscribed = False
 
     async def __aenter__(self):
         """Enter context manager."""
@@ -130,6 +131,47 @@ class TrickleSubscriber:
             next_conn = await self.preconnect()
             if next_conn:
                 self.pending_get = next_conn
+
+    async def subscribe(self, callback=None):
+        """
+        High-level method to start subscribing to the stream.
+        
+        Args:
+            callback: Optional callback function to process received segments
+            
+        Returns:
+            bool: True if subscription started successfully, False otherwise
+        """
+        try:
+            if not self._subscribed:
+                await self.start()
+                self._subscribed = True
+                
+            if callback:
+                # If a callback is provided, continuously process segments
+                while not self.errored:
+                    segment = await self.next()
+                    if segment is None:
+                        break
+                    try:
+                        await callback(segment)
+                    except Exception as e:
+                        logger.error(f"Error in subscription callback: {e}")
+                        break
+                    finally:
+                        await segment.close()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to subscribe: {e}")
+            return False
+
+    async def unsubscribe(self):
+        """
+        High-level method to stop the subscription.
+        Alias for close() method.
+        """
+        await self.close()
+        self._subscribed = False
 
     async def close(self):
         """Close the session when done."""

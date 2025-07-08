@@ -23,6 +23,7 @@ class TricklePublisher:
         self.next_writer: Optional[asyncio.Queue] = None
         self.lock = asyncio.Lock()  # Lock to manage concurrent access
         self.session: Optional[aiohttp.ClientSession] = None
+        self._started = False
 
     async def __aenter__(self):
         """Enter context manager."""
@@ -135,6 +136,39 @@ class TricklePublisher:
                     logger.error(f"Error closing trickle publisher", exc_info=True)
                 finally:
                     self.session = None
+
+    async def publish(self, data: bytes) -> bool:
+        """
+        High-level method to publish data.
+        
+        Args:
+            data: The data to publish
+            
+        Returns:
+            bool: True if published successfully, False otherwise
+        """
+        try:
+            if not self._started:
+                await self.start()
+                self._started = True
+                
+            segment = await self.next()
+            if segment:
+                await segment.write(data)
+                await segment.close()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to publish data: {e}")
+            return False
+
+    async def stop(self):
+        """
+        High-level method to stop the publisher.
+        Alias for close() method.
+        """
+        await self.close()
+        self._started = False
 
 class SegmentWriter:
     """Writer for individual trickle segments."""
